@@ -28,7 +28,7 @@ ENABLE_UPLOADS = os.getenv("ENABLE_UPLOADS", "false").lower() == "true"
 DEMO_USERNAME = os.getenv("DEMO_USERNAME", "").strip()
 DEMO_PASSWORD = os.getenv("DEMO_PASSWORD", "").strip()
 
-app = FastAPI(title="Visualizador 3D de Ocupación EWM", version="5.1-render-demo", docs_url=None, redoc_url=None)
+app = FastAPI(title="Visualizador 3D de Ocupación EWM", version="5.2-render-demo", docs_url=None, redoc_url=None)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 _lock = RLock()
@@ -88,7 +88,7 @@ async def security_middleware(request: Request, call_next):
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "5.1-render-demo"}
+    return {"status": "ok", "version": "5.2-render-demo"}
 
 
 @app.get("/api/warehouse/status")
@@ -118,7 +118,11 @@ async def upload_master(file: UploadFile = File(...)):
         with _lock:
             staged = Path(tempfile.mkstemp(prefix="master_current_", suffix=".xlsx")[1])
             shutil.copy2(temp, staged)
-            new_snapshot = build_snapshot(staged, _occupancy_path)
+            try:
+                new_snapshot = build_snapshot(staged, _occupancy_path)
+            except ValueError as exc:
+                staged.unlink(missing_ok=True)
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             _master_path = staged
             _snapshot = new_snapshot
         return {"ok": True, "kpis": new_snapshot["kpis"], "validation": new_snapshot["validation"]}
@@ -136,7 +140,11 @@ async def upload_occupancy(file: UploadFile = File(...)):
         with _lock:
             staged = Path(tempfile.mkstemp(prefix="occupancy_current_", suffix=".xlsx")[1])
             shutil.copy2(temp, staged)
-            new_snapshot = build_snapshot(_master_path, staged)
+            try:
+                new_snapshot = build_snapshot(_master_path, staged)
+            except ValueError as exc:
+                staged.unlink(missing_ok=True)
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             _occupancy_path = staged
             _snapshot = new_snapshot
         return {"ok": True, "kpis": new_snapshot["kpis"], "validation": new_snapshot["validation"]}
@@ -158,3 +166,4 @@ if FRONTEND_DIST.exists():
         if full_path and candidate.exists() and candidate.is_file():
             return FileResponse(candidate)
         return FileResponse(FRONTEND_DIST / "index.html")
+
