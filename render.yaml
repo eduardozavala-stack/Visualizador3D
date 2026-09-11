@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: visualizador-ocupacion-3d-ewm-demo
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: ENABLE_UPLOADS
+        value: "false"
+      - key: DEMO_USERNAME
+        value: "gerencia"
+      - key: DEMO_PASSWORD
+        sync: false
+      - key: MAX_UPLOAD_BYTES
+        value: "20971520"
