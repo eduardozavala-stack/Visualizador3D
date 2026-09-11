@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { fetchSnapshot } from './api'
+import { fetchSnapshot, fetchWarehouseStatus, uploadMaster, uploadOccupancy } from './api'
 import type { Snapshot, WarehouseLocation } from './types'
 import WarehouseScene from './components/WarehouseScene'
 import MultiFilter from './components/MultiFilter'
@@ -31,10 +31,49 @@ export default function App() {
   const [minAge,setMinAge]=useState(0)
   const [search,setSearch]=useState('')
   const [cameraMode,setCameraMode]=useState<'ISO'|'TOP'|'FRONT'|'SIDE'>('ISO')
+  const [uploadsEnabled,setUploadsEnabled]=useState(false)
+  const [masterFile,setMasterFile]=useState<File|null>(null)
+  const [occupancyFile,setOccupancyFile]=useState<File|null>(null)
+  const [uploading,setUploading]=useState<'master'|'occupancy'|null>(null)
+  const [uploadMessage,setUploadMessage]=useState('')
+  const [uploadError,setUploadError]=useState('')
 
   useEffect(()=>{
-    fetchSnapshot().then(setData).catch(e=>setError(e.message)).finally(()=>setLoading(false))
+    Promise.all([fetchSnapshot(), fetchWarehouseStatus()])
+      .then(([snapshot,status])=>{ setData(snapshot); setUploadsEnabled(Boolean(status.uploadsEnabled)) })
+      .catch(e=>setError(e.message))
+      .finally(()=>setLoading(false))
   },[])
+
+  const reloadSnapshot = async () => {
+    const snapshot = await fetchSnapshot()
+    setData(snapshot)
+    setSelected(null)
+  }
+
+  const handleUploadMaster = async () => {
+    if (!masterFile) return
+    setUploading('master'); setUploadError(''); setUploadMessage('')
+    try {
+      await uploadMaster(masterFile)
+      await reloadSnapshot()
+      setMasterFile(null)
+      setUploadMessage('Maestro actualizado correctamente para esta sesión de Render.')
+    } catch (e) { setUploadError(e instanceof Error ? e.message : 'No se pudo actualizar el maestro.') }
+    finally { setUploading(null) }
+  }
+
+  const handleUploadOccupancy = async () => {
+    if (!occupancyFile) return
+    setUploading('occupancy'); setUploadError(''); setUploadMessage('')
+    try {
+      await uploadOccupancy(occupancyFile)
+      await reloadSnapshot()
+      setOccupancyFile(null)
+      setUploadMessage('Ocupación actualizada correctamente para esta sesión de Render.')
+    } catch (e) { setUploadError(e instanceof Error ? e.message : 'No se pudo actualizar la ocupación.') }
+    finally { setUploading(null) }
+  }
 
   const filtered = useMemo(()=>{
     if (!data) return []
@@ -73,6 +112,28 @@ export default function App() {
         <div><h1>Ocupación 3D del Almacén</h1><p>Digital Twin operativo · SAP EWM</p></div>
         <div className="header-meta"><span className="demo-badge">DEMO ANONIMIZADA</span><small>Generado: {new Date(data.metadata.generatedAt).toLocaleString('es-PE')}</small></div>
       </header>
+
+      {uploadsEnabled && <section className="upload-panel panel">
+        <div className="upload-title">
+          <div><strong>Administración de archivos EWM</strong><span>Cargas habilitadas para esta demo</span></div>
+          <span className="upload-enabled-badge">UPLOADS ACTIVOS</span>
+        </div>
+        <div className="upload-grid">
+          <div className="upload-card">
+            <div><strong>Maestro de ubicaciones</strong><small>Reemplazar solo cuando cambie la estructura física.</small></div>
+            <input type="file" accept=".xlsx,.XLSX" onChange={e=>setMasterFile(e.target.files?.[0] || null)} />
+            <button disabled={!masterFile || uploading!==null} onClick={handleUploadMaster}>{uploading==='master'?'Procesando…':'Guardar / reemplazar maestro'}</button>
+          </div>
+          <div className="upload-card">
+            <div><strong>Ocupación actual</strong><small>Cargar el último reporte exportado desde EWM.</small></div>
+            <input type="file" accept=".xlsx,.XLSX" onChange={e=>setOccupancyFile(e.target.files?.[0] || null)} />
+            <button disabled={!occupancyFile || uploading!==null} onClick={handleUploadOccupancy}>{uploading==='occupancy'?'Procesando…':'Guardar y actualizar ocupación 3D'}</button>
+          </div>
+        </div>
+        {uploadMessage && <div className="upload-message success">{uploadMessage}</div>}
+        {uploadError && <div className="upload-message error-msg">{uploadError}</div>}
+        <div className="ephemeral-warning"><strong>Demo Render Free:</strong> los archivos cargados permanecen mientras la instancia esté activa. Si Render reinicia o recrea el servicio, se recuperarán los datos demo incluidos en el despliegue.</div>
+      </section>}
 
       <section className="kpi-row">
         <Kpi value={`${filteredKpis.pct.toFixed(1)}%`} label="Ocupación operativa" accent="#ef4444"/>
