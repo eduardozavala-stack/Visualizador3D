@@ -36,10 +36,50 @@ def _x(value: Any) -> bool:
     return False if pd.isna(value) else str(value).strip().upper() == "X"
 
 
-def _read_xlsx(path: Path) -> pd.DataFrame:
-    df = pd.read_excel(path, sheet_name=0, engine="openpyxl")
+def _clean_header(value: Any) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    return str(value).strip()
+
+
+def _find_data_sheet_and_header(path: Path, required: list[str]) -> tuple[str | int, int]:
+    """Detecta automáticamente la hoja y la fila real de encabezados.
+
+    Soporta tanto:
+      1) Exportes directos EWM con encabezados en la primera fila.
+      2) Plantillas V5 con hoja "Datos", título/descripcion y encabezados en fila 4.
+    """
+    excel = pd.ExcelFile(path, engine="openpyxl")
+    # Priorizamos una hoja llamada Datos; luego revisamos las demás.
+    sheet_order = sorted(excel.sheet_names, key=lambda s: (str(s).strip().lower() != "datos", excel.sheet_names.index(s)))
+    required_set = set(required)
+
+    for sheet in sheet_order:
+        preview = pd.read_excel(
+            path,
+            sheet_name=sheet,
+            header=None,
+            nrows=20,
+            engine="openpyxl",
+            dtype=object,
+        )
+        for row_idx in range(len(preview)):
+            values = {_clean_header(v) for v in preview.iloc[row_idx].tolist()}
+            if required_set.issubset(values):
+                return sheet, row_idx
+
+    raise ValueError(
+        "No se encontró una hoja con los encabezados requeridos: " + ", ".join(required)
+    )
+
+
+def _read_xlsx(path: Path, required: list[str]) -> pd.DataFrame:
+    sheet, header_row = _find_data_sheet_and_header(path, required)
+    df = pd.read_excel(path, sheet_name=sheet, header=header_row, engine="openpyxl")
     # Evita cabeceras con espacios accidentales sin alterar tildes/terminología EWM.
     df.columns = [str(c).strip() for c in df.columns]
+    # Elimina filas completamente vacías que puedan existir al final de plantillas editadas.
+    df = df.dropna(how="all").reset_index(drop=True)
     return df
 
 
@@ -50,8 +90,8 @@ def validate_columns(df: pd.DataFrame, required: list[str], label: str) -> None:
 
 
 def build_snapshot(master_path: Path, occupancy_path: Path, *, data_date: date | None = None) -> dict[str, Any]:
-    master = _read_xlsx(master_path)
-    occupancy = _read_xlsx(occupancy_path)
+    master = _read_xlsx(master_path, REQUIRED_MASTER)
+    occupancy = _read_xlsx(occupancy_path, REQUIRED_OCC)
     validate_columns(master, REQUIRED_MASTER, "Maestro")
     validate_columns(occupancy, REQUIRED_OCC, "Ocupación")
 
@@ -104,14 +144,13 @@ def build_snapshot(master_path: Path, occupancy_path: Path, *, data_date: date |
             invalid_location_codes.append(code)
             prefix = code[:2] if len(code) >= 2 else "??"
             aisle = int(row.get("Pasillo")) if pd.notna(row.get("Pasillo")) else 0
-            # Col. puede no equivaler exactamente a posición; solo es fallback si el código no cumple patrón.
             position = int(row.get("Col.")) if pd.notna(row.get("Col.")) else 0
             level = int(row.get("Nivel")) if pd.notna(row.get("Nivel")) else 1
 
         module = math.ceil(position / 2) if position else 0
         side = "IZQUIERDA" if position % 2 == 1 else "DERECHA"
 
-        # IMPORTANTE V5: no hay desplazamiento por prefijo (AA/PA/ET/etc.).
+        # V5: no hay desplazamiento por prefijo (AA/PA/ET/etc.).
         # La posición física depende de pasillo, posición y nivel.
         x = (module - 1) * 2.10 if module else 0.0
         y = (level - 1) * 1.55
@@ -256,3 +295,4 @@ def build_snapshot(master_path: Path, occupancy_path: Path, *, data_date: date |
         },
         "locations": locations,
     }
+
