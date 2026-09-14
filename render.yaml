@@ -9,10 +9,12 @@ services:
     autoDeployTrigger: commit
     envVars:
       - key: ENABLE_UPLOADS
-        value: "false"
+        value: "true"
       - key: DEMO_USERNAME
         value: "gerencia"
       - key: DEMO_PASSWORD
         sync: false
       - key: MAX_UPLOAD_BYTES
         value: "20971520"
+      - key: DATA_DIR
+        value: /var/data
