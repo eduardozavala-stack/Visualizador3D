@@ -2,7 +2,7 @@ services:
   - type: web
     name: visualizador-ocupacion-3d-ewm-demo
     runtime: docker
-    plan: free
+    plan: 1c-2g
     region: oregon
     dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
