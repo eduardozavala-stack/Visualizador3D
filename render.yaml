@@ -3,6 +3,12 @@ services:
     name: visualizador-ocupacion-3d-ewm-demo
     runtime: docker
     plan: 1c-2g
+
+    disk:
+      name: visualizador-data
+      mountPath: /var/data
+      sizeGB: 1
+      
     region: oregon
     dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
