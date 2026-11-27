@@ -2,6 +2,7 @@ import { Html, OrbitControls } from '@react-three/drei'
 import { Canvas, ThreeEvent, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useEffect, useMemo, useRef } from 'react'
+import type { ComponentRef, RefObject } from 'react'
 import type { WarehouseLocation } from '../types'
 
 const COLORS: Record<string, string> = {
@@ -13,14 +14,17 @@ const COLORS: Record<string, string> = {
 }
 
 type Props = {
+  colorForLocation?: (location: WarehouseLocation) => string | undefined
   locations: WarehouseLocation[]
   selectedCode: string | null
   onSelect: (location: WarehouseLocation | null) => void
   cameraMode: 'ISO' | 'TOP' | 'FRONT' | 'SIDE'
 }
 
-function CameraRig({ mode, locations }: { mode: Props['cameraMode']; locations: WarehouseLocation[] }) {
-  const { camera } = useThree()
+type Orbit = ComponentRef<typeof OrbitControls>
+
+function CameraRig({ mode, locations, orbit }: { mode: Props['cameraMode']; locations: WarehouseLocation[]; orbit: RefObject<Orbit | null> }) {
+  const { camera, invalidate } = useThree()
   const bounds = useMemo(() => {
     if (!locations.length) return { cx: 0, cy: 0, cz: 0, span: 100 }
     let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity,minZ=Infinity,maxZ=-Infinity
@@ -40,13 +44,18 @@ function CameraRig({ mode, locations }: { mode: Props['cameraMode']; locations: 
     else camera.position.set(cx + span*0.75, cy + span*0.48, cz + span*0.75)
     camera.lookAt(cx, cy, cz)
     camera.updateProjectionMatrix()
-  }, [camera, mode, bounds])
+    orbit.current?.target.set(cx, cy, cz)
+    orbit.current?.update()
+    invalidate()
+  }, [camera, mode, bounds, orbit, invalidate])
   return null
 }
 
-function StatusInstances({ status, locations, selectedCode, onSelect }: { status: string; locations: WarehouseLocation[]; selectedCode: string | null; onSelect: Props['onSelect'] }) {
+function StatusInstances({ status, locations, selectedCode, onSelect, colorForLocation }: Omit<Props, 'cameraMode'> & { status: string }) {
   const ref = useRef<THREE.InstancedMesh>(null)
-  const material = useMemo(() => new THREE.MeshStandardMaterial({ color: COLORS[status] || '#94a3b8', roughness: 0.78, metalness: 0.02 }), [status])
+  const invalidate = useThree(state => state.invalidate)
+  const materialColor = colorForLocation ? '#ffffff' : COLORS[status] || '#94a3b8'
+  const material = useMemo(() => new THREE.MeshStandardMaterial({ color: materialColor, roughness: 0.78, metalness: 0.02 }), [materialColor])
   const geometry = useMemo(() => new THREE.BoxGeometry(1.65, 1.05, 0.85), [])
 
   useEffect(() => {
@@ -57,12 +66,13 @@ function StatusInstances({ status, locations, selectedCode, onSelect }: { status
       matrix.makeTranslation(l.x, l.y, l.z)
       mesh.setMatrixAt(i, matrix)
       const selected = l.code === selectedCode
-      const color = new THREE.Color(selected ? '#3b82f6' : COLORS[status] || '#94a3b8')
+      const color = new THREE.Color(selected ? '#3b82f6' : colorForLocation?.(l) ?? COLORS[status] ?? '#94a3b8')
       mesh.setColorAt(i, color)
     })
     mesh.instanceMatrix.needsUpdate = true
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
-  }, [locations, selectedCode, status])
+    invalidate()
+  }, [locations, selectedCode, status, colorForLocation, invalidate])
 
   const click = (event: ThreeEvent<MouseEvent>) => {
     event.stopPropagation()
@@ -74,7 +84,8 @@ function StatusInstances({ status, locations, selectedCode, onSelect }: { status
   return <instancedMesh ref={ref} args={[geometry, material, locations.length]} onClick={click} castShadow={false} receiveShadow={false} />
 }
 
-function Scene({ locations, selectedCode, onSelect, cameraMode }: Props) {
+function Scene({ locations, selectedCode, onSelect, cameraMode, colorForLocation }: Props) {
+  const orbit = useRef<Orbit>(null)
   const groups = useMemo(() => {
     const out: Record<string, WarehouseLocation[]> = {}
     for (const l of locations) (out[l.status] ||= []).push(l)
@@ -100,21 +111,21 @@ function Scene({ locations, selectedCode, onSelect, cameraMode }: Props) {
       <ambientLight intensity={1.2} />
       <directionalLight position={[80, 100, 60]} intensity={1.6} />
       <gridHelper args={[420, 84, '#cbd5e1', '#e2e8f0']} position={[45,-0.58,65]} />
-      {(Object.entries(groups) as [string, WarehouseLocation[]][]).map(([status, items]) => <StatusInstances key={status} status={status} locations={items} selectedCode={selectedCode} onSelect={onSelect} />)}
+      {(Object.entries(groups) as [string, WarehouseLocation[]][]).map(([status, items]) => <StatusInstances key={status} status={status} locations={items} selectedCode={selectedCode} onSelect={onSelect} colorForLocation={colorForLocation} />)}
       {aisleLabels.map(label => (
         <Html key={label.key} position={[label.x,label.y,label.z]} center distanceFactor={30} zIndexRange={[10,0]}>
           <span className="aisle-number-label">{label.label}</span>
         </Html>
       ))}
-      <CameraRig mode={cameraMode} locations={locations} />
-      <OrbitControls makeDefault enableDamping dampingFactor={0.08} maxPolarAngle={Math.PI/2.02} />
+      <CameraRig mode={cameraMode} locations={locations} orbit={orbit} />
+      <OrbitControls ref={orbit} makeDefault enableDamping dampingFactor={0.08} maxPolarAngle={Math.PI/2.02} />
     </>
   )
 }
 
 export default function WarehouseScene(props: Props) {
   return (
-    <Canvas camera={{ fov: 46, near: 0.1, far: 2000 }} dpr={[1, 1.5]} onPointerMissed={() => props.onSelect(null)}>
+    <Canvas frameloop="demand" camera={{ fov: 46, near: 0.1, far: 2000 }} dpr={[1, 1.5]} onPointerMissed={() => props.onSelect(null)}>
       <Scene {...props} />
     </Canvas>
   )
