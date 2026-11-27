@@ -3,6 +3,7 @@ import { fetchSnapshot, fetchWarehouseStatus, uploadMaster, uploadOccupancy } fr
 import type { Snapshot, WarehouseLocation } from './types'
 import WarehouseScene from './components/WarehouseScene'
 import MultiFilter from './components/MultiFilter'
+import SlottingView from './slotting/SlottingView'
 
 const STATUS_LABEL: Record<string,string> = {
   LIBRE:'Libre', OCUPADA:'Ocupada', PARCIAL:'Parcial', BLOQUEADA:'Bloqueada', NO_DISPONIBLE:'No disponible'
@@ -19,6 +20,8 @@ function Kpi({value,label,accent}: {value:string|number,label:string,accent:stri
 }
 
 export default function App() {
+  const [view,setView]=useState<'occupancy'|'slotting'>('occupancy')
+  const [slottingOpened,setSlottingOpened]=useState(false)
   const [data,setData]=useState<Snapshot|null>(null)
   const [error,setError]=useState('')
   const [loading,setLoading]=useState(true)
@@ -113,6 +116,12 @@ export default function App() {
         <div className="header-meta"><span className="demo-badge">DEMO ANONIMIZADA</span><small>Generado: {new Date(data.metadata.generatedAt).toLocaleString('es-PE')}</small></div>
       </header>
 
+      <nav className="slotting-tabs" aria-label="Vistas del almacén">
+        <button aria-pressed={view==='occupancy'} onClick={()=>setView('occupancy')}>Ocupación</button>
+        <button aria-pressed={view==='slotting'} onClick={()=>{setSlottingOpened(true);setView('slotting')}}>Escenarios de slotting</button>
+      </nav>
+      {slottingOpened && <SlottingView snapshot={data} active={view==='slotting'}/>}
+      {view==='occupancy' && <>
       {uploadsEnabled && <section className="upload-panel panel">
         <div className="upload-title">
           <div><strong>Administración de archivos EWM</strong><span>Cargas habilitadas para esta demo</span></div>
@@ -190,6 +199,7 @@ export default function App() {
         <div><h2>Lectura ejecutiva</h2><p>Esta demo utiliza datos anonimizados y conserva la geometría del almacén para demostrar navegación, filtros múltiples y mercadería sin rotación.</p></div>
         <div className="analysis-cards"><div><strong>{data.kpis.totalLocations.toLocaleString('es-PE')}</strong><span>ubicaciones del maestro</span></div><div><strong>{data.options.aisles.length}</strong><span>pasillos</span></div><div><strong>{Math.max(...data.options.levels)}</strong><span>niveles</span></div><div><strong>{data.kpis.uniqueProducts}</strong><span>productos demo</span></div></div>
       </section>
+      </>}
     </div>
   )
 }
